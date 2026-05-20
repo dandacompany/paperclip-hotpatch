@@ -41,6 +41,25 @@ Full change spec: [`docs/whats-changed.md`](docs/whats-changed.md).
 
 ---
 
+## Docker / Hostinger note
+
+If you're running paperclip as a Docker container (e.g. Hostinger's `ghcr.io/hostinger/hvps-paperclip` image), call the patch from **inside** the container, **as root**:
+
+```bash
+docker exec -u root <container-name> sh -c '
+  curl -fsSL https://raw.githubusercontent.com/dandacompany/paperclip-hotpatch/main/patch.sh | bash
+'
+docker restart <container-name>
+```
+
+Why `-u root`: those images default to a non-root user (e.g. `node`) while the `paperclipai` files under `/usr/local/lib/node_modules/` are owned by root. `sed -i` needs write access to the directory for its temp file.
+
+The script auto-detects both layouts — npx cache (`~/.npm/_npx/<hash>/...`) and global install (`/usr/local/lib/node_modules/...` with `@paperclipai/*` nested inside `paperclipai/node_modules/`).
+
+Verified on `ghcr.io/hostinger/hvps-paperclip:latest` (paperclipai 2026.517.0) on Hostinger VPS.
+
+---
+
 ## How it works
 
 The patch script:
