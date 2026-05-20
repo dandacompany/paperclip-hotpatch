@@ -42,29 +42,55 @@ done
 log() { printf '[%s] %s\n' "$1" "$2"; }
 
 # --- Step 1: discover paperclipai install ---
-NPX_ROOT="${HOME}/.npm/_npx"
-if [[ ! -d "$NPX_ROOT" ]]; then
-  echo "ERROR: $NPX_ROOT does not exist. Is paperclipai installed via npx?" >&2
-  exit 1
-fi
+# Supports three layouts:
+#   (1) npx cache:        ~/.npm/_npx/<hash>/node_modules/paperclipai            (siblings @ ../@paperclipai/)
+#   (2) global install:   /usr/local/lib/node_modules/paperclipai                (nested @ paperclipai/node_modules/@paperclipai/)
+#   (3) nvm/custom:       <NPM_PREFIX>/lib/node_modules/paperclipai              (nested)
 
 PCDIR=""
-for d in "$NPX_ROOT"/*/node_modules/paperclipai; do
-  [[ -f "$d/package.json" ]] || continue
-  PCDIR="$d"
-  break
-done
+
+# (1) npx cache layout
+NPX_ROOT="${HOME}/.npm/_npx"
+if [[ -d "$NPX_ROOT" ]]; then
+  for d in "$NPX_ROOT"/*/node_modules/paperclipai; do
+    [[ -f "$d/package.json" ]] || continue
+    PCDIR="$d"; break
+  done
+fi
+
+# (2,3) global / nvm npm root
+if [[ -z "$PCDIR" ]]; then
+  for prefix in /usr/local/lib /usr/lib /opt/homebrew/lib "$HOME/.npm-global/lib" "$HOME/.nvm"/versions/node/*/lib; do
+    cand="$prefix/node_modules/paperclipai"
+    if [[ -f "$cand/package.json" ]]; then
+      PCDIR="$cand"; break
+    fi
+  done
+fi
 
 if [[ -z "$PCDIR" ]]; then
-  echo "ERROR: paperclipai not found under any $NPX_ROOT/<hash>/node_modules/paperclipai" >&2
-  echo "Start paperclip once (e.g. 'systemctl start paperclip') to populate the cache, then retry." >&2
+  echo "ERROR: paperclipai not found in npx cache or any common npm global location." >&2
+  echo "Searched: ~/.npm/_npx/*/node_modules/paperclipai," >&2
+  echo "          /usr/local/lib/node_modules/paperclipai, /usr/lib/node_modules/paperclipai," >&2
+  echo "          /opt/homebrew/lib/node_modules/paperclipai, ~/.npm-global/lib/node_modules/paperclipai," >&2
+  echo "          ~/.nvm/versions/node/*/lib/node_modules/paperclipai" >&2
   exit 1
 fi
 
 PCVER=$(node -p "require('$PCDIR/package.json').version" 2>/dev/null || echo "?")
 log discover "paperclipai @ $PCDIR ($PCVER)"
 
-NM_ROOT="$(dirname "$PCDIR")"
+# Locate @paperclipai/* — try nested layout first (global install), then sibling (npx cache).
+if [[ -d "$PCDIR/node_modules/@paperclipai/adapter-codex-local" ]]; then
+  NM_ROOT="$PCDIR/node_modules"
+elif [[ -d "$(dirname "$PCDIR")/@paperclipai/adapter-codex-local" ]]; then
+  NM_ROOT="$(dirname "$PCDIR")"
+else
+  echo "ERROR: @paperclipai scope not found near $PCDIR" >&2
+  echo "Tried: $PCDIR/node_modules/@paperclipai and $(dirname "$PCDIR")/@paperclipai" >&2
+  exit 1
+fi
+
 ADAPTER_FILE="$NM_ROOT/@paperclipai/adapter-codex-local/dist/index.js"
 if [[ ! -f "$ADAPTER_FILE" ]]; then
   echo "ERROR: adapter-codex-local not found at $ADAPTER_FILE" >&2
